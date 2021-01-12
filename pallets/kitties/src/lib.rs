@@ -1,5 +1,6 @@
 //编译条件 只有满足条件时才会编译
 #![cfg_attr(not(feature = "std"), no_std)]
+#[warn(unused_imports)]
 //#![no_std]
 
 use codec::{Encode,Decode};
@@ -162,4 +163,80 @@ impl<T: TraitTest> Module<T>{
 		Ok(kitty_id)
 
 	}
+}
+
+#[cfg(test)]
+mod tests{
+	use super::*;
+	use sp_core::H256;
+	use frame_support::{impl_out_origin,parameter_types,weights::Weight,traits::{OnFinalize,OnInitialize}};
+	use sp_runtime::{traits::{BlakeTwo256,IdentityLookup}, testing::Header, Perbill,};
+	use frame_system as system;
+	use frame_system::Origin;
+	impl_outer_origin! {
+	pub enum Origin for Test {}
+}
+
+	#[derive(Clone, Eq, PartialEq,Debug)]
+	pub struct Test;
+	parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+	pub const MaximumBlockWeight: Weight = 1024;
+	pub const MaximumBlockLength: u32 = 2 * 1024;
+	pub const AvailableBlockRatio: Perbill = Perbill::from_percent(75);
+	pub const ExistentialDeposit: u64 = 1;
+}
+
+	impl system::Trait for Test {
+		type BaseCallFilter = ();
+		type Origin = Origin;
+		type Call = ();
+		type Index = u64;
+		type BlockNumber = u64;
+		type Hash = H256;
+		type Hashing = BlakeTwo256;
+		type AccountId = u64;
+		type Lookup = IdentityLookup<Self::AccountId>;
+		type Header = Header;
+		type Event = TestEvent;
+		type BlockHashCount = BlockHashCount;
+		type MaximumBlockWeight = MaximumBlockWeight;
+		type DbWeight = ();
+		type BlockExecutionWeight = ();
+		type ExtrinsicBaseWeight = ();
+		type MaximumExtrinsicWeight = MaximumBlockWeight;
+		type MaximumBlockLength = MaximumBlockLength;
+		type AvailableBlockRatio = AvailableBlockRatio;
+		type Version = ();
+		type PalletInfo = ();
+		type AccountData = balances::AccountData<u64>;
+		type OnNewAccount = ();
+		type OnKilledAccount = ();
+		type SystemWeightInfo = ();
+	}
+
+	type Randomness = pallet_randomness_collective_flip::Module<Test>;
+
+	impl TraitTest for Test {
+		type Event = ();
+		// type Event = TestEvent;
+		type Randomness = Randomness;
+		//type KittyIndex = u32;
+		//type Currency = balances::Module<Self>;
+	}
+
+	pub type Kitties = Module<Test>;
+	fn new_test_ext() -> sp_io::TestExternalities{
+
+		system::GenesisConfig::default().build_storage::<Test>().unwrap().into();
+	}
+
+	#[test]
+	fn owned_kitties_can_append_values(){
+		new_test_ext().execute_with(||{
+			assert_eq!(Kitties::create(Origin::signed(1),),Ok(()));
+		})
+	}
+
+
 }
