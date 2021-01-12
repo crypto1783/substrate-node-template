@@ -229,6 +229,19 @@ mod tests{
 	}
 
 	pub type Kitties = Module<Test>;
+
+	pub type System = frame_system::Module<Test>;
+	fn run_to_block( n: u64) {
+		while System::block_number() < n {
+			Kitties::on_finalize(System::block_number());
+			System::on_finalize(System::block_number());
+			System::set_block_number(System::block_number()+1);
+			System::on_initialize(System::block_number());
+			Kitties::on_initialize(System::block_number());
+		}
+	}
+
+
 	fn new_test_ext() -> sp_io::TestExternalities{
 
 		system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
@@ -237,6 +250,7 @@ mod tests{
 	#[test]
 	fn owned_kitties_can_append_values(){
 		new_test_ext().execute_with(||{
+			run_to_block(10);
 			assert_eq!(Kitties::create(origin::signed(1),),Ok(()));
 		})
 	}
