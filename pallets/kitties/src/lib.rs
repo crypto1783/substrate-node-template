@@ -11,7 +11,8 @@ use sp_io::hashing::blake2_128;
 use sp_runtime::DispatchError;
 use frame_system::ensure_signed;
 use sp_std::vec::Vec;
-use balances;
+use pallet_balances as balances;
+//use pallet_randomness_collective_flip;
 //use parity_scale_codec::Encode;
 //use sp_core::blake2_128;
 
@@ -170,13 +171,14 @@ impl<T: TraitTest> Module<T>{
 mod tests{
 	use super::*;
 	use sp_core::H256;
-	use frame_support::{impl_out_origin,parameter_types,weights::Weight,traits::{OnFinalize,OnInitialize}};
+	use frame_support::{impl_outer_event,impl_outer_origin,parameter_types,weights::Weight,traits::{OnFinalize,OnInitialize}};
 	use sp_runtime::{traits::{BlakeTwo256,IdentityLookup}, testing::Header, Perbill,};
 	use frame_system as system;
 	use frame_system::Origin;
 	impl_outer_origin! {
-	pub enum Origin for Test {}
+	pub enum origin for Test {}
 }
+
 
 	#[derive(Clone, Eq, PartialEq,Debug)]
 	pub struct Test;
@@ -190,7 +192,7 @@ mod tests{
 
 	impl system::Trait for Test {
 		type BaseCallFilter = ();
-		type Origin = Origin;
+		type Origin = origin;
 		type Call = ();
 		type Index = u64;
 		type BlockNumber = u64;
@@ -199,7 +201,7 @@ mod tests{
 		type AccountId = u64;
 		type Lookup = IdentityLookup<Self::AccountId>;
 		type Header = Header;
-		type Event = TestEvent;
+		type Event = ();
 		type BlockHashCount = BlockHashCount;
 		type MaximumBlockWeight = MaximumBlockWeight;
 		type DbWeight = ();
@@ -229,13 +231,13 @@ mod tests{
 	pub type Kitties = Module<Test>;
 	fn new_test_ext() -> sp_io::TestExternalities{
 
-		system::GenesisConfig::default().build_storage::<Test>().unwrap().into();
+		system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
 	}
 
 	#[test]
 	fn owned_kitties_can_append_values(){
 		new_test_ext().execute_with(||{
-			assert_eq!(Kitties::create(Origin::signed(1),),Ok(()));
+			assert_eq!(Kitties::create(origin::signed(1),),Ok(()));
 		})
 	}
 
