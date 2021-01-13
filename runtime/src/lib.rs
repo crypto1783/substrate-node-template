@@ -264,7 +264,7 @@ impl pallet_sudo::Trait for Runtime {
 }
 
 /// Configure the template pallet in pallets/template.
-impl pallet_template::TraitTest for Runtime {
+impl pallet_template::Trait for Runtime {
 	type Event = Event;
 }
 impl TraitTest for Runtime {

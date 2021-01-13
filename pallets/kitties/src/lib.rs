@@ -61,6 +61,18 @@ decl_storage! {
 		/// key是序列，value是所有者的账号id， Option<T::AccountId>语法含义是什么
     	pub KittyOwners get(fn kitty_owner):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
 
+		// 记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
+    	pub OwnerKitties get(fn owned_owned_kittieskitties):double_map hasher(blake2_128_concat) T::AccountId, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+
+		// 记录某只猫的父母  单键映射map， key是猫的序列id  value是元组（父,母）
+		pub KittyParents get(fn kitty_parents):map hasher(blake2_128_concat) T::KittyIndex => (T::KittyIndex, T::KittyIndex);
+
+		// 记录某只猫的孩子们，双键映射map key1是主猫的id  key2是孩子，value也是孩子
+		pub KittyChildren get(fn kitty_children):double_map hasher(blake2_128_concat) T::KittyIndex, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+
+		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
+		pub KittyPartners get(fn kitty_partners):double_map hasher(blake2_128_concat) T::KittyIndex, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+
     }
 }
 
@@ -101,6 +113,7 @@ decl_module! {
     pub struct Module<T: TraitTest> for enum Call where origin: T::Origin {
 
 		type Error = Error<T>;
+
 		fn deposit_event() = default;
 
 		#[weight = 0]
@@ -120,6 +133,7 @@ decl_module! {
 			///
 			Self::insert_kitty(&sender, kitty_id, kitty);
 
+			///
 			Self::deposit_event(RawEvent::Created(sender,kitty_id));
 
 		}
@@ -183,11 +197,12 @@ impl<T: TraitTest> Module<T>{
 	/// @kitty: kitty数据是一个包含一个数组的结构体，数据内容是伪随机数据DNA
 	fn insert_kitty(owner:&T::AccountId, kitty_id:T::KittyIndex, kitty:Kitty)
 	{
-		//
 		// 这里的存储单元为什么要这么写? into是什么方法
 		<KittiesCount::<T>>::put(kitty_id+1.into());
 		<KittyOwners::<T>>::insert(kitty_id, owner);
 		<Kitties::<T>>::insert(kitty_id, kitty);
+		//拥有者 有哪些猫的存储单元
+		<OwnerKitties::<T>>::insert(owner, kitty_id, kitty_id);
 		 //Kitties::insert(kitty_id, kitty);
 		//KittiesCount::put(kitty_id + 1.into());
 		//<KittyOwners<T>>::insert(kitty_id, owner);
@@ -198,26 +213,35 @@ impl<T: TraitTest> Module<T>{
 		(selector & dna1) | (!selector & dna2)
 	}
 
-	fn do_breed(sender:&T::AccountId,kitty_id_1:T::KittyIndex,kitty_id_2:T::KittyIndex) -> sp_std::result::Result<T::KittyIndex,DispatchError>
+	fn do_breed(sender:&T::AccountId, father_id:T::KittyIndex, mother_id:T::KittyIndex) -> sp_std::result::Result<T::KittyIndex,DispatchError>
 	{
-		let kitty1 = Self::kitties(kitty_id_1).ok_or(Error::<T>::InvalidKittyId)?;
-		let kitty2 = Self::kitties(kitty_id_2).ok_or(Error::<T>::InvalidKittyId)?;
-		ensure!(kitty_id_1 != kitty_id_2, Error::<T>::RequireDifferentParent);
+		let fatherDNA = Self::kitties(father_id).ok_or(Error::<T>::InvalidKittyId)?;
+		let motherDNA = Self::kitties(mother_id).ok_or(Error::<T>::InvalidKittyId)?;
+		ensure!(father_id != mother_id, Error::<T>::RequireDifferentParent);
 
-		let kitty_id = Self::next_kitty_id()?;
-		let kitty1_dna = kitty1.0;
-		let kitty2_dna =  kitty2.0;
+		let new_kitty_index = Self::next_kitty_id()?;
+		let father_dna = fatherDNA.0;
+		let mother_dna =  motherDNA.0;
 		let selector = Self::random_value(&sender);
 		let mut new_dna = [0u8;16];
 
-		for i in 0..kitty1_dna.len(){
-
-			new_dna[i] = Self::combine_dna(kitty1_dna[i], kitty2_dna[i], selector[i]);
+		for i in 0..father_dna.len(){
+			new_dna[i] = Self::combine_dna(father_dna[i], mother_dna[i], selector[i]);
 		}
 
-		Self::insert_kitty(sender,kitty_id,Kitty(new_dna));
-		Ok(kitty_id)
+		Self::insert_kitty(sender, new_kitty_index, Kitty(new_dna));
+		// 设置父母
+		<KittyParents::<T>>::insert(new_kitty_index,(father_id, mother_id));
 
+		// 记录某只猫的孩子们，双键映射map key1是主猫的id  key2是孩子，value也是孩子
+		<KittyChildren::<T>>::insert(father_id, new_kitty_index, new_kitty_index);
+		<KittyChildren::<T>>::insert(mother_id, new_kitty_index, new_kitty_index);
+
+		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
+		//<KittyPartners::<T>>::insert(fatherIndex, motherIndex, motherIndex);
+		//<KittyPartners::<T>>::insert(motherIndex, fatherIndex, fatherIndex);
+
+		Ok(new_kitty_index)
 	}
 }
 
