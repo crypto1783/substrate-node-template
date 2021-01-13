@@ -41,6 +41,7 @@ pub use frame_support::{
 /// Import the template pallet.
 pub use pallet_template;
 pub use pallet_kitties;
+use pallet_kitties::TraitTest;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -266,9 +267,10 @@ impl pallet_sudo::Trait for Runtime {
 impl pallet_template::TraitTest for Runtime {
 	type Event = Event;
 }
-impl pallet_kitties::TraitTest for Runtime {
+impl TraitTest for Runtime {
 	type Event = Event;
 	type Randomness = RandomnessCollectiveFlip;
+	type KittyIndex = u32;
 }
 
 
