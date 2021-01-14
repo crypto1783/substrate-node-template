@@ -1,5 +1,12 @@
 //编译条件 只有满足条件时才会编译
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod mock;
+
 #[warn(unused_imports)]
 //#![no_std]
 
@@ -27,8 +34,8 @@ pub struct Kitty(
 );
 
 // 2. Configuration
-/// Configure the pallet by specifying the parameters and types on which it depends.
-/// 定义一个trait,trait的名字叫做Trait,这个trait继承自frame_system::Trait
+// Configure the pallet by specifying the parameters and types on which it depends.
+// 定义一个trait,trait的名字叫做Trait,这个trait继承自frame_system::Trait
 pub trait TraitTest: frame_system::Trait {
 	// Because this pallet emits events, it depends on the runtime's definition of an event.
 	type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
@@ -52,13 +59,13 @@ decl_storage! {
 	//这个写法上是substrte特有的，不是rust语法，所以参照写即可
     trait Store for Module<T: TraitTest> as TemplateModule {
 
-        /// key是kitty每次新增的序列id, vulue 是DNA
+        // key是kitty每次新增的序列id, vulue 是DNA
     	pub Kitties get(fn kitties):map hasher(blake2_128_concat) T::KittyIndex => Option<Kitty>;
 
-		/// KittiesCount这个存储单元用于存放一个计数器的值,每新增一个kitty计数器+1
+		// KittiesCount这个存储单元用于存放一个计数器的值,每新增一个kitty计数器+1
     	pub KittiesCount get(fn kitties_count):T::KittyIndex;
 
-		/// key是序列，value是所有者的账号id， Option<T::AccountId>语法含义是什么
+		// key是序列，value是所有者的账号id， Option<T::AccountId>语法含义是什么
     	pub KittyOwners get(fn kitty_owner):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
 
 		// 记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
@@ -82,7 +89,7 @@ decl_storage! {
 // https://substrate.dev/docs/en/knowledgebase/runtime/events
 decl_event! {
 
-    /// 这里的KittyIndex = <T as Trait>::KittyIndex的语法是什么写法？
+    // 这里的KittyIndex = <T as Trait>::KittyIndex的语法是什么写法？
     pub enum Event<T> where AccountId = <T as frame_system::Trait>::AccountId,KittyIndex = <T as TraitTest>::KittyIndex {
 		//
     	Created(AccountId, KittyIndex),
@@ -99,6 +106,8 @@ decl_error! {
 		KittiesCountOverflow,
 		InvalidKittyId,
 		RequireDifferentParent,
+		KittyNotExists,
+		NotKittyOwner,
     }
 }
 
@@ -108,8 +117,7 @@ decl_error! {
 // Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 decl_module! {
 
-	/// 定义了一个结构体,名字为Module,这是一个带有泛型的结构体,泛型的要求是必须实现了TraitTest这个Trait
-	///
+	// 定义了一个结构体,名字为Module,这是一个带有泛型的结构体,泛型的要求是必须实现了TraitTest这个Trait
     pub struct Module<T: TraitTest> for enum Call where origin: T::Origin {
 
 		type Error = Error<T>;
@@ -121,19 +129,17 @@ decl_module! {
 
 			let sender = ensure_signed(orign)?;
 
-			/// Self是指调用方这个对象，这里因为当前这个方法create所在的struct同时是next_kitty_id所在impl实现的结构体Module
+			// Self是指调用方这个对象，这里因为当前这个方法create所在的struct同时是next_kitty_id所在impl实现的结构体Module
 			let kitty_id = Self::next_kitty_id()?;
 
-			/// 获取一个DNA数组
+			// 获取一个DNA数组
 			let dna = Self::random_value(&sender);
 
-			/// 实例化结构体Kitty
+			// 实例化结构体Kitty
 			let kitty = Kitty(dna);
 
-			///
 			Self::insert_kitty(&sender, kitty_id, kitty);
 
-			///
 			Self::deposit_event(RawEvent::Created(sender,kitty_id));
 
 		}
@@ -142,6 +148,11 @@ decl_module! {
 		pub fn transfer(orign, to:T::AccountId, kitty_id:T::KittyIndex)
 		{
 			let sender = ensure_signed(orign)?;
+			//如果这个kitty存在则返回一个Option,否则抛出KittyNotExists异常
+			let owner = Self::kitty_owner(kitty_id).ok_or(Error::<T>::KittyNotExists)?;
+
+			//option类型和sender可以直接对比？
+			ensure!(sender == owner, Error::<T>::NotKittyOwner);
 			<KittyOwners<T>>::insert(kitty_id,to.clone());
 			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_id));
 		}
@@ -164,13 +175,13 @@ decl_module! {
 /// 这个结构体 有一个泛型T，这个范型要求实现TraitTest这个trait,如果这个结构体的实例化对象没有实现TraitTest,则当前这个impl对这个结构体的实现无效,这就是有条件地实现结构体的方法
 impl<T: TraitTest> Module<T>{
 
-	///T::KittyIndex是指实现TraitTest这个trait的对象中的成员变量KittyIndex
+	//T::KittyIndex是指实现TraitTest这个trait的对象中的成员变量KittyIndex
 	fn next_kitty_id() -> sp_std::result::Result<T::KittyIndex,DispatchError>{
 
-		/// Self代表的时候这个方法next_kitty_id()的调用方，KittiesCount这个存储单元在使用时有一个可选的方法kitties_count()
+		// Self代表的时候这个方法next_kitty_id()的调用方，KittiesCount这个存储单元在使用时有一个可选的方法kitties_count()
 		let kitty_id = Self::kitties_count();
 
-		/// 计数器达到了i32的最大值则抛出异常
+		// 计数器达到了i32的最大值则抛出异常
 		if kitty_id == T::KittyIndex::max_value()
 		{
 			return Err(Error::<T>::KittiesCountOverflow.into());
@@ -179,7 +190,7 @@ impl<T: TraitTest> Module<T>{
 		Ok(kitty_id)
 	}
 
-	///生成一个u8类型长度为16的数组，算是一个伪随机的数
+	//生成一个u8类型长度为16的数组，算是一个伪随机的数
 	fn random_value(sender:&T::AccountId) -> [u8;16]{
 
 		let paylaod = (
@@ -203,7 +214,7 @@ impl<T: TraitTest> Module<T>{
 		<Kitties::<T>>::insert(kitty_id, kitty);
 		//拥有者 有哪些猫的存储单元
 		<OwnerKitties::<T>>::insert(owner, kitty_id, kitty_id);
-		 //Kitties::insert(kitty_id, kitty);
+		//Kitties::insert(kitty_id, kitty);
 		//KittiesCount::put(kitty_id + 1.into());
 		//<KittyOwners<T>>::insert(kitty_id, owner);
 	}
@@ -215,13 +226,13 @@ impl<T: TraitTest> Module<T>{
 
 	fn do_breed(sender:&T::AccountId, father_id:T::KittyIndex, mother_id:T::KittyIndex) -> sp_std::result::Result<T::KittyIndex,DispatchError>
 	{
-		let fatherDNA = Self::kitties(father_id).ok_or(Error::<T>::InvalidKittyId)?;
-		let motherDNA = Self::kitties(mother_id).ok_or(Error::<T>::InvalidKittyId)?;
+		let father_dna = Self::kitties(father_id).ok_or(Error::<T>::InvalidKittyId)?;
+		let mother_dna = Self::kitties(mother_id).ok_or(Error::<T>::InvalidKittyId)?;
 		ensure!(father_id != mother_id, Error::<T>::RequireDifferentParent);
 
 		let new_kitty_index = Self::next_kitty_id()?;
-		let father_dna = fatherDNA.0;
-		let mother_dna =  motherDNA.0;
+		let father_dna = father_dna.0;
+		let mother_dna =  mother_dna.0;
 		let selector = Self::random_value(&sender);
 		let mut new_dna = [0u8;16];
 
@@ -238,102 +249,10 @@ impl<T: TraitTest> Module<T>{
 		<KittyChildren::<T>>::insert(mother_id, new_kitty_index, new_kitty_index);
 
 		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
-		//<KittyPartners::<T>>::insert(fatherIndex, motherIndex, motherIndex);
-		//<KittyPartners::<T>>::insert(motherIndex, fatherIndex, fatherIndex);
+		<KittyPartners::<T>>::insert(father_id, mother_id, mother_id);
+		<KittyPartners::<T>>::insert(mother_id, father_id, father_id);
 
 		Ok(new_kitty_index)
 	}
 }
 
-
-
-#[cfg(test)]
-mod tests{
-	use super::*;
-	use sp_core::H256;
-	use frame_support::{impl_outer_event,impl_outer_origin,parameter_types,weights::Weight,traits::{OnFinalize,OnInitialize}};
-	use sp_runtime::{traits::{BlakeTwo256,IdentityLookup}, testing::Header, Perbill,};
-	use frame_system as system;
-	use frame_system::Origin;
-	impl_outer_origin! {
-	pub enum origin for Test {}
-}
-
-
-	#[derive(Clone, Eq, PartialEq,Debug)]
-	pub struct Test;
-	parameter_types! {
-	pub const BlockHashCount: u64 = 250;
-	pub const MaximumBlockWeight: Weight = 1024;
-	pub const MaximumBlockLength: u32 = 2 * 1024;
-	pub const AvailableBlockRatio: Perbill = Perbill::from_percent(75);
-	pub const ExistentialDeposit: u64 = 1;
-}
-
-	impl system::Trait for Test {
-		type BaseCallFilter = ();
-		type Origin = origin;
-		type Call = ();
-		type Index = u64;
-		type BlockNumber = u64;
-		type Hash = H256;
-		type Hashing = BlakeTwo256;
-		type AccountId = u64;
-		type Lookup = IdentityLookup<Self::AccountId>;
-		type Header = Header;
-		type Event = ();
-		type BlockHashCount = BlockHashCount;
-		type MaximumBlockWeight = MaximumBlockWeight;
-		type DbWeight = ();
-		type BlockExecutionWeight = ();
-		type ExtrinsicBaseWeight = ();
-		type MaximumExtrinsicWeight = MaximumBlockWeight;
-		type MaximumBlockLength = MaximumBlockLength;
-		type AvailableBlockRatio = AvailableBlockRatio;
-		type Version = ();
-		type PalletInfo = ();
-		type AccountData = balances::AccountData<u64>;
-		type OnNewAccount = ();
-		type OnKilledAccount = ();
-		type SystemWeightInfo = ();
-	}
-
-	type Randomness = pallet_randomness_collective_flip::Module<Test>;
-
-	impl TraitTest for Test {
-		type Event = ();
-		// type Event = TestEvent;
-		type Randomness = Randomness;
-		type KittyIndex = u32;
-		//type Currency = balances::Module<Self>;
-	}
-
-	pub type Kitties = Module<Test>;
-
-	pub type System = frame_system::Module<Test>;
-	fn run_to_block( n: u64) {
-		while System::block_number() < n {
-			Kitties::on_finalize(System::block_number());
-			System::on_finalize(System::block_number());
-			System::set_block_number(System::block_number()+1);
-			System::on_initialize(System::block_number());
-			Kitties::on_initialize(System::block_number());
-		}
-	}
-
-
-	fn new_test_ext() -> sp_io::TestExternalities{
-
-		system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
-	}
-
-	#[test]
-	fn owned_kitties_can_append_values(){
-		new_test_ext().execute_with(||{
-			run_to_block(10);
-			assert_eq!(Kitties::create(origin::signed(1),),Ok(()));
-		})
-	}
-
-
-}
