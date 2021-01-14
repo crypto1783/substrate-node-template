@@ -20,7 +20,20 @@ use sp_io;
 impl_outer_origin! {
 	pub enum origin for TestKitty {}
 }
+mod kitties {
+	pub use crate::Event;
+}
 
+// 导入外部的事件定义
+impl_outer_event! {
+	pub enum TestEvent for TestKitty {
+		kitties<T>,
+		system<T>,
+	}
+}
+mod simple_event {
+	pub use crate::Event;
+}
 
 #[derive(Clone, Eq, PartialEq,Debug)]
 pub struct TestKitty;
@@ -30,9 +43,6 @@ parameter_types! {
 	pub const MaximumBlockLength: u32 = 2 * 1024;
 	pub const AvailableBlockRatio: Perbill = Perbill::from_percent(75);
 	pub const ExistentialDeposit: u64 = 1;
-}
-mod kitties {
-	pub use crate::Event;
 }
 
 
@@ -47,7 +57,7 @@ impl system::Trait for TestKitty {
 	type AccountId = u64;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
-	type Event = ();
+	type Event = TestEvent;
 	type BlockHashCount = BlockHashCount;
 	type MaximumBlockWeight = MaximumBlockWeight;
 	type DbWeight = ();
@@ -65,8 +75,8 @@ impl system::Trait for TestKitty {
 }
 
 impl TraitTest for TestKitty {
-	type Event = ();
-	// type Event = TestEvent;
+	//type Event = ();
+	type Event = TestEvent;
 	type Randomness = Randomness;
 	type KittyIndex = u32;
 	//type Currency = balances::Module<Self>;

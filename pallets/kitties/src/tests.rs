@@ -12,15 +12,6 @@ fn run_to_block( n: u64) {
 	}
 }
 
-/*
-impl_outer_event! {
-	pub enum TestEvent for TestRuntime {
-		//simple_event,
-		//frame_system<T>,
-
-	}
-}
-*/
 #[test]
 fn owned_kitties_can_append_values(){
 	new_test_ext().execute_with(||{
@@ -28,16 +19,8 @@ fn owned_kitties_can_append_values(){
 		assert_eq!(Kitties::create(origin::signed(1),),Ok(()));
 		Kitties::create(origin::signed(1));
 		let events = System::events();
-		/*
-		assert_eq!(
-			System::events(),
-			vec![EventRecord {
-				phase: Phase::Initialization,
-				event: TestEvent::simple_event(Event::EmitInput(32)),
-				topics: vec![],
-			}]
-		);*/
 
+		assert_eq!(System::events()[0].event, TestEvent::kitties( Event::<TestKitty>::Created( 1u64 , 0) ));
 		Kitties::on_initialize(System::block_number());
 	})
 }
