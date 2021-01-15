@@ -119,7 +119,8 @@ decl_error! {
 		RequireDifferentParent,
 		KittyNotExists,
 		NotKittyOwner,
-    }
+		MoneyNotEnough,
+	    }
 }
 
 // 6. Callable Functions
@@ -168,10 +169,16 @@ decl_module! {
 
 			//option类型和sender可以直接对比？
 			ensure!(sender == owner, Error::<T>::NotKittyOwner);
-			//插入kitty-新owner的关系
-			<KittyOwners<T>>::insert(kitty_id,to.clone());
+
+			// 质押被转让人的代币
+			T::Currency::reserve(&to, T::LockAmount::get()).map_err(|_| Error::<T>::MoneyNotEnough )?;
+			T::Currency::unreserve(&sender, T::LockAmount::get());
+
 			//删除kitty-原owner的关系
 			<KittyOwners<T>>::remove(kitty_id);
+			//插入kitty-新owner的关系
+			<KittyOwners<T>>::insert(kitty_id,&to);
+
 
 			// OwnerKitties记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
 			//删除原来owner包含的kitty的数据
