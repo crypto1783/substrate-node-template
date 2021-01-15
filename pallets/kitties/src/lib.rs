@@ -18,7 +18,7 @@ use sp_io::hashing::blake2_128;
 
 use frame_system::ensure_signed;
 use sp_std::vec::Vec;
-use pallet_balances as balances;
+//use pallet_balances as balances;
 use sp_runtime::{DispatchError,traits::{AtLeast32Bit,Bounded}};
 use frame_support::traits::{Currency, ReservableCurrency, Get};
 //use pallet_randomness_collective_flip;
@@ -80,7 +80,7 @@ decl_storage! {
     	pub KittyOwners get(fn kitty_owner):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
 
 		// 记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
-    	pub OwnerKitties get(fn owned_owned_kittieskitties):double_map hasher(blake2_128_concat) T::AccountId, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+    	pub OwnerKitties get(fn owner_kitties):double_map hasher(blake2_128_concat) T::AccountId, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
 
 		// 记录某只猫的父母  单键映射map， key是猫的序列id  value是元组（父,母）
 		pub KittyParents get(fn kitty_parents):map hasher(blake2_128_concat) T::KittyIndex => (T::KittyIndex, T::KittyIndex);
@@ -140,6 +140,7 @@ decl_module! {
 
 			let sender = ensure_signed(orign)?;
 
+			//质押币
 			T::Currency::reserve(&sender, T::LockAmount::get())
 					.map_err(|_| "locker can't afford to lock the amount requested")?;
 
@@ -162,12 +163,24 @@ decl_module! {
 		pub fn transfer(orign, to:T::AccountId, kitty_id:T::KittyIndex)
 		{
 			let sender = ensure_signed(orign)?;
-			//如果这个kitty存在则返回一个Option,否则抛出KittyNotExists异常
+			//如果这个kitty存在owner则返回一个Option,否则抛出KittyNotExists异常
 			let owner = Self::kitty_owner(kitty_id).ok_or(Error::<T>::KittyNotExists)?;
 
 			//option类型和sender可以直接对比？
 			ensure!(sender == owner, Error::<T>::NotKittyOwner);
+			//插入kitty-新owner的关系
 			<KittyOwners<T>>::insert(kitty_id,to.clone());
+			//删除kitty-原owner的关系
+			<KittyOwners<T>>::remove(kitty_id);
+
+			// OwnerKitties记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
+			//删除原来owner包含的kitty的数据
+			//sender的类型是accountId,这个类型是继承自frame_system::Trait，由于这个类型不是基础类型，所以需要加&防止所有权转移
+			<OwnerKitties<T>>::remove(&sender, kitty_id);
+			//OwnedKitties::<T>::remove(&sender, kitty_id);
+
+			<OwnerKitties<T>>::insert(&to, kitty_id, kitty_id);
+
 			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_id));
 		}
 
