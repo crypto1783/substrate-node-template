@@ -6,7 +6,7 @@
 //use frame_system::Origin;
 
 use crate::*;
-use balances;
+use pallet_balances as balances;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup}, testing::Header, Perbill,
@@ -14,8 +14,7 @@ use sp_runtime::{
 use frame_system as system;
 use frame_support::{ impl_outer_event, impl_outer_origin, parameter_types, weights::Weight};
 use sp_io;
-
-
+use frame_system::Trait;
 
 impl_outer_origin! {
 	pub enum origin for TestKitty {}
@@ -29,11 +28,10 @@ impl_outer_event! {
 	pub enum TestEvent for TestKitty {
 		kitties<T>,
 		system<T>,
+		balances<T>,
 	}
 }
-mod simple_event {
-	pub use crate::Event;
-}
+
 
 #[derive(Clone, Eq, PartialEq,Debug)]
 pub struct TestKitty;
@@ -74,11 +72,28 @@ impl system::Trait for TestKitty {
 	type SystemWeightInfo = ();
 }
 
+impl balances::Trait for TestKitty {
+	type Balance = u64;
+	type MaxLocks = ();
+	type Event = TestEvent;
+	type DustRemoval = ();
+	type ExistentialDeposit = ExistentialDeposit;
+	type AccountStore = system::Module<TestKitty>;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub const LockAmount: u64 = 5_000;
+}
+
+//实现kitty的pallet里的trait
 impl TraitTest for TestKitty {
 	//type Event = ();
 	type Event = TestEvent;
 	type Randomness = Randomness;
 	type KittyIndex = u32;
+	type Currency = balances::Module<Self>;
+	type LockAmount = LockAmount;
 	//type Currency = balances::Module<Self>;
 }
 
@@ -88,7 +103,19 @@ pub type System = frame_system::Module<TestKitty>;
 
 pub fn new_test_ext() -> sp_io::TestExternalities{
 
-	system::GenesisConfig::default().build_storage::<TestKitty>().unwrap().into()
+
+	let mut t = system::GenesisConfig::default()
+		.build_storage::<TestKitty>()
+		.unwrap();
+	balances::GenesisConfig::<TestKitty> {
+		// Provide some initial balances
+		balances: vec![(1, 10000000000), (2, 110000000), (3, 1200000000), (4, 1300000000), (5, 1400000000)],
+	}
+		.assimilate_storage(&mut t)
+		.unwrap();
+	let mut ext: sp_io::TestExternalities = t.into();
+	ext.execute_with(|| System::set_block_number(1));
+	ext
 }
 
 type Randomness = pallet_randomness_collective_flip::Module<TestKitty>;

@@ -20,6 +20,7 @@ use frame_system::ensure_signed;
 use sp_std::vec::Vec;
 use pallet_balances as balances;
 use sp_runtime::{DispatchError,traits::{AtLeast32Bit,Bounded}};
+use frame_support::traits::{Currency, ReservableCurrency, Get};
 //use pallet_randomness_collective_flip;
 //use parity_scale_codec::Encode;
 //use sp_core::blake2_128;
@@ -32,6 +33,9 @@ use sp_runtime::{DispatchError,traits::{AtLeast32Bit,Bounded}};
 pub struct Kitty(
 	pub [u8; 16]
 );
+
+type BalanceOf<T> = <<T as TraitTest>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
+
 
 // 2. Configuration
 // Configure the pallet by specifying the parameters and types on which it depends.
@@ -46,9 +50,16 @@ pub trait TraitTest: frame_system::Trait {
 	// AtLeast32Bit 表示转换为 u32 不会造成数据丢失
 	// Bounded 表示包含上界和下界
 	// Default 表示有默认值
-	// Copy 表示可以实现 Copy这个trait
+	// Copy 表示实现 Copy这个trait
 	// 类型KiityIndex需要同时实现以下5种trait
 	type KittyIndex: Parameter + AtLeast32Bit + Bounded + Default + Copy;
+
+	//某一种货币，具体是什么货币则有runtime实例化设置
+	type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+
+	// 创建 Kitty 的时候，需要质押的代币数量
+	type LockAmount: Get<BalanceOf<Self>>;
+
 }
 
 // 3. Storage
@@ -128,6 +139,9 @@ decl_module! {
 		pub fn create(orign){
 
 			let sender = ensure_signed(orign)?;
+
+			T::Currency::reserve(&sender, T::LockAmount::get())
+					.map_err(|_| "locker can't afford to lock the amount requested")?;
 
 			// Self是指调用方这个对象，这里因为当前这个方法create所在的struct同时是next_kitty_id所在impl实现的结构体Module
 			let kitty_id = Self::next_kitty_id()?;

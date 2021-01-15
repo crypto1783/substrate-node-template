@@ -267,10 +267,18 @@ impl pallet_sudo::Trait for Runtime {
 impl pallet_template::Trait for Runtime {
 	type Event = Event;
 }
+
+parameter_types! {
+	pub const LockAmount: u64 = 5_000;
+}
+
 impl TraitTest for Runtime {
 	type Event = Event;
 	type Randomness = RandomnessCollectiveFlip;
 	type KittyIndex = u32;
+	type Currency = Balances;
+	type LockAmount = LockAmount;
+
 }
 
 
