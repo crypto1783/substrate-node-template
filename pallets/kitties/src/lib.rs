@@ -34,6 +34,7 @@ pub struct Kitty(
 	pub [u8; 16]
 );
 
+//面值
 type KittyAmount = u32;
 
 type BalanceOf<T> = <<T as TraitTest>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
@@ -87,7 +88,9 @@ decl_storage! {
     	pub KittiesCount get(fn kitties_count):T::KittyIndex;
 
 		// key是序列，value是所有者的账号id， Option<T::AccountId>语法含义是什么
-    	pub KittyOwners get(fn kitty_owner):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
+		pub KittyOwners get(fn kitty_owner):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
+		
+		pub TicketCreater get(fn ticket_creater):map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
 
 		// 记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
     	pub OwnerKitties get(fn owner_kitties):double_map hasher(blake2_128_concat) T::AccountId, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
@@ -101,7 +104,11 @@ decl_storage! {
 		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
 		pub KittyPartners get(fn kitty_partners):double_map hasher(blake2_128_concat) T::KittyIndex, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
 
-		pub KittyPre get(fn pre_kitty):map hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+		//记录是由哪一个张ticket拆分来的
+		pub KittyPre get(fn pre_kitty):map hasher(blake2_128_concat) T::KittyIndex => Option<Kitty>;
+
+		//为true表示已经失效
+		pub IsInvalid get(fn invalid):map hasher(blake2_128_concat) T::KittyIndex => Option<bool>;
 
 		
     }
@@ -136,6 +143,7 @@ decl_error! {
 		NotKittyOwner,
 		MoneyNotEnough,
 		NotSameAmount,
+		TicketIsInvalid,
 	    }
 }
 
@@ -158,8 +166,7 @@ decl_module! {
 			let sender = ensure_signed(orign)?;
 
 			//质押币
-			T::Currency::reserve(&sender, T::LockAmount::get())
-					.map_err(|_| "locker can't afford to lock the amount requested")?;
+			//T::Currency::reserve(&sender, T::LockAmount::get()).map_err(|_| "locker can't afford to lock the amount requested")?;
 
 			// Self是指调用方这个对象，这里因为当前这个方法create所在的struct同时是next_kitty_id所在impl实现的结构体Module
 			let kitty_id = Self::next_kitty_id()?;
@@ -172,6 +179,7 @@ decl_module! {
 
 			Self::insert_kitty(&sender, kitty_id, kitty);
 			<PriceAmount::<T>>::insert(kitty_id, price);
+			
 
 			Self::deposit_event(RawEvent::Created(sender,kitty_id));
 
@@ -187,10 +195,12 @@ decl_module! {
 			//option类型和sender可以直接对比？
 			ensure!(sender == owner, Error::<T>::NotKittyOwner);
 
-			// 质押被转让人的代币
-			T::Currency::reserve(&to, T::LockAmount::get()).map_err(|_| Error::<T>::MoneyNotEnough )?;
-			T::Currency::unreserve(&sender, T::LockAmount::get());
+			let is_invalid:bool = <IsInvalid<T>>::get(kitty_id).unwrap();
+			ensure!(is_invalid == false, Error::<T>::TicketIsInvalid);
 
+			// 质押被转让人的代币
+			//T::Currency::reserve(&to, T::LockAmount::get()).map_err(|_| Error::<T>::MoneyNotEnough )?;
+			//T::Currency::unreserve(&sender, T::LockAmount::get());
 			//删除kitty-原owner的关系
 			<KittyOwners<T>>::remove(kitty_id);
 			//插入kitty-新owner的关系
@@ -201,22 +211,12 @@ decl_module! {
 			//sender的类型是accountId,这个类型是继承自frame_system::Trait，由于这个类型不是基础类型，所以需要加&防止所有权转移
 			<OwnerKitties<T>>::remove(&sender, kitty_id);
 			//OwnedKitties::<T>::remove(&sender, kitty_id);
-
 			<OwnerKitties<T>>::insert(&to, kitty_id, kitty_id);
-
 			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_id));
 		}
 
 		#[weight = 0]
-		pub fn breed(orign, kitty_id_1:T::KittyIndex, kitty_id_2:T::KittyIndex)
-		{
-			let sender = ensure_signed(orign)?;
-			let new_kitty_id = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
-			Self::deposit_event(RawEvent::Created(sender, new_kitty_id));
-		}
-
-		#[weight = 0]
-		pub fn to_two_kitties(orign, kitty_id:T::KittyIndex, amount1:u32, amount2:u32)
+		pub fn to_two_tickets(orign, kitty_id:T::KittyIndex, amount1:u32, amount2:u32)
 		{
 			let sender = ensure_signed(orign)?;
 			let owner = Self::kitty_owner(kitty_id).ok_or(Error::<T>::KittyNotExists)?;
@@ -224,9 +224,22 @@ decl_module! {
 			let price = Self::price(kitty_id);
 			let total_amount = amount2 + amount1;
 			ensure!(price == total_amount, Error::<T>::NotSameAmount);	
+
+			let is_invalid:bool = <IsInvalid<T>>::get(kitty_id).unwrap();
+			ensure!(is_invalid == false, Error::<T>::TicketIsInvalid);
+			
 			let kitty_id1 = Self::create_new_kitty(&sender, amount1)?;
 			let kitty_id2 = Self::create_new_kitty(&sender, amount2)?;
+			let kitty_dna:Option<Kitty> = <Kitties::<T>>::get(kitty_id);
+			let kitty_predna = kitty_dna.unwrap();
+			<KittyPre::<T>>::insert(kitty_id1, &kitty_predna);
+			<KittyPre::<T>>::insert(kitty_id2, &kitty_predna);
+			//let f:bool = false;
+			<IsInvalid::<T>>::insert(kitty_id, true);
+			//let to:T::AccountId = AccountId::from([0x0; 32];
+			// Self::transfer(orign, 0.into(), kitty_id);
 			Self::deposit_event(RawEvent::SplitToTwo(sender, kitty_id, kitty_id1, kitty_id2));
+
 		}
 
 }
@@ -298,45 +311,11 @@ impl<T: TraitTest> Module<T>{
 		<Kitties::<T>>::insert(kitty_id, kitty);
 		//拥有者 有哪些猫的存储单元
 		<OwnerKitties::<T>>::insert(owner, kitty_id, kitty_id);
-		//Kitties::insert(kitty_id, kitty);
-		//KittiesCount::put(kitty_id + 1.into());
-		//<KittyOwners<T>>::insert(kitty_id, owner);
+		<IsInvalid::<T>>::insert(kitty_id, false);
+
+		<TicketCreater::<T>>::insert(kitty_id, owner);
 	}
 
 
-	fn combine_dna(dna1:u8,dna2:u8,selector:u8) -> u8 {
-		(selector & dna1) | (!selector & dna2)
-	}
-
-	fn do_breed(sender:&T::AccountId, father_id:T::KittyIndex, mother_id:T::KittyIndex) -> sp_std::result::Result<T::KittyIndex,DispatchError>
-	{
-		let father_dna = Self::kitties(father_id).ok_or(Error::<T>::InvalidKittyId)?;
-		let mother_dna = Self::kitties(mother_id).ok_or(Error::<T>::InvalidKittyId)?;
-		ensure!(father_id != mother_id, Error::<T>::RequireDifferentParent);
-
-		let new_kitty_index = Self::next_kitty_id()?;
-		let father_dna = father_dna.0;
-		let mother_dna =  mother_dna.0;
-		let selector = Self::random_value(&sender, new_kitty_index);
-		let mut new_dna = [0u8;16];
-
-		for i in 0..father_dna.len(){
-			new_dna[i] = Self::combine_dna(father_dna[i], mother_dna[i], selector[i]);
-		}
-
-		Self::insert_kitty(sender, new_kitty_index, Kitty(new_dna));
-		// 设置父母
-		<KittyParents::<T>>::insert(new_kitty_index,(father_id, mother_id));
-
-		// 记录某只猫的孩子们，双键映射map key1是主猫的id  key2是孩子，value也是孩子
-		<KittyChildren::<T>>::insert(father_id, new_kitty_index, new_kitty_index);
-		<KittyChildren::<T>>::insert(mother_id, new_kitty_index, new_kitty_index);
-
-		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
-		<KittyPartners::<T>>::insert(father_id, mother_id, mother_id);
-		<KittyPartners::<T>>::insert(mother_id, father_id, father_id);
-
-		Ok(new_kitty_index)
-	}
 }
 
