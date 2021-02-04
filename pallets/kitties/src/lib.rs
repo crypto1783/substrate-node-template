@@ -15,7 +15,7 @@ use frame_support::{
 	decl_module, decl_storage, decl_event, decl_error, ensure,StorageValue, dispatch, StorageMap,traits::Randomness,Parameter
 };
 use sp_io::hashing::blake2_128;
-
+use sp_std::result::Result as Result;
 use frame_system::ensure_signed;
 use sp_std::vec::Vec;
 //use pallet_balances as balances;
@@ -26,13 +26,15 @@ use frame_support::traits::{Currency, ReservableCurrency, Get};
 //use sp_core::blake2_128;
 
 //id
-//type KittyIndex = u32;
+//type KittyPrice = u32;
 
 //DNA u8类型 长度为16的数组
 #[derive(Encode, Decode)]
 pub struct Kitty(
 	pub [u8; 16]
 );
+
+type KittyAmount = u32;
 
 type BalanceOf<T> = <<T as TraitTest>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
 
@@ -60,6 +62,8 @@ pub trait TraitTest: frame_system::Trait {
 	// 创建 Kitty 的时候，需要质押的代币数量
 	type LockAmount: Get<BalanceOf<Self>>;
 
+	//type PriceTotal: Parameter + AtLeast32Bit + Bounded + Default + Copy;
+
 }
 
 // 3. Storage
@@ -71,7 +75,13 @@ decl_storage! {
     trait Store for Module<T: TraitTest> as TemplateModule {
 
         // key是kitty每次新增的序列id, vulue 是DNA
-    	pub Kitties get(fn kitties):map hasher(blake2_128_concat) T::KittyIndex => Option<Kitty>;
+		pub Kitties get(fn kitties):map hasher(blake2_128_concat) T::KittyIndex => Option<Kitty>;
+
+		//pub KittiesPrice get(fn get_price):map hasher(blake2_128_concat) T::KittyIndex => Option<T::PriceTotal>;
+		
+		pub PriceAmount get(fn price):map hasher(blake2_128_concat) T::KittyIndex => KittyAmount;
+
+		//pub KittyPrice get(fn get_price):map hasher(blake2_128_concat) T::KittyIndex => T::PriceTotal;
 
 		// KittiesCount这个存储单元用于存放一个计数器的值,每新增一个kitty计数器+1
     	pub KittiesCount get(fn kitties_count):T::KittyIndex;
@@ -91,6 +101,9 @@ decl_storage! {
 		// 记录某只猫的伴侣，双键映射map key1是主猫，key2是伴侣猫，value是伴侣猫
 		pub KittyPartners get(fn kitty_partners):double_map hasher(blake2_128_concat) T::KittyIndex, hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
 
+		pub KittyPre get(fn pre_kitty):map hasher(blake2_128_concat) T::KittyIndex => Option<T::KittyIndex>;
+
+		
     }
 }
 
@@ -100,12 +113,14 @@ decl_storage! {
 // https://substrate.dev/docs/en/knowledgebase/runtime/events
 decl_event! {
 
-    // 这里的KittyIndex = <T as Trait>::KittyIndex的语法是什么写法？
-    pub enum Event<T> where AccountId = <T as frame_system::Trait>::AccountId,KittyIndex = <T as TraitTest>::KittyIndex {
+    //回答：这里的<T as frame_system::Trait>::AccountId是fully qualified syntax提供的无歧义调用语法 <T as TraitName>::item
+    pub enum Event<T> where AccountId = <T as frame_system::Trait>::AccountId, KittyIndex = <T as TraitTest>::KittyIndex {
 		//
     	Created(AccountId, KittyIndex),
 
-    	Transferred(AccountId, AccountId,KittyIndex),
+		Transferred(AccountId, AccountId,KittyIndex),
+		
+		SplitToTwo(AccountId, KittyIndex, KittyIndex, KittyIndex),
 
     }
 }
@@ -120,6 +135,7 @@ decl_error! {
 		KittyNotExists,
 		NotKittyOwner,
 		MoneyNotEnough,
+		NotSameAmount,
 	    }
 }
 
@@ -137,7 +153,7 @@ decl_module! {
 		fn deposit_event() = default;
 
 		#[weight = 0]
-		pub fn create(orign){
+		pub fn create(orign, price:KittyAmount){
 
 			let sender = ensure_signed(orign)?;
 
@@ -149,12 +165,13 @@ decl_module! {
 			let kitty_id = Self::next_kitty_id()?;
 
 			// 获取一个DNA数组
-			let dna = Self::random_value(&sender);
+			let dna = Self::random_value(&sender, kitty_id);
 
 			// 实例化结构体Kitty
 			let kitty = Kitty(dna);
 
 			Self::insert_kitty(&sender, kitty_id, kitty);
+			<PriceAmount::<T>>::insert(kitty_id, price);
 
 			Self::deposit_event(RawEvent::Created(sender,kitty_id));
 
@@ -179,7 +196,6 @@ decl_module! {
 			//插入kitty-新owner的关系
 			<KittyOwners<T>>::insert(kitty_id,&to);
 
-
 			// OwnerKitties记录某个账号拥有的猫  双键映射map key1是拥有者账号id  key2是猫的序列id  value是猫的序列id
 			//删除原来owner包含的kitty的数据
 			//sender的类型是accountId,这个类型是继承自frame_system::Trait，由于这个类型不是基础类型，所以需要加&防止所有权转移
@@ -197,6 +213,20 @@ decl_module! {
 			let sender = ensure_signed(orign)?;
 			let new_kitty_id = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
 			Self::deposit_event(RawEvent::Created(sender, new_kitty_id));
+		}
+
+		#[weight = 0]
+		pub fn to_two_kitties(orign, kitty_id:T::KittyIndex, amount1:u32, amount2:u32)
+		{
+			let sender = ensure_signed(orign)?;
+			let owner = Self::kitty_owner(kitty_id).ok_or(Error::<T>::KittyNotExists)?;
+			ensure!(sender == owner, Error::<T>::NotKittyOwner);
+			let price = Self::price(kitty_id);
+			let total_amount = amount2 + amount1;
+			ensure!(price == total_amount, Error::<T>::NotSameAmount);	
+			let kitty_id1 = Self::create_new_kitty(&sender, amount1)?;
+			let kitty_id2 = Self::create_new_kitty(&sender, amount2)?;
+			Self::deposit_event(RawEvent::SplitToTwo(sender, kitty_id, kitty_id1, kitty_id2));
 		}
 
 }
@@ -224,13 +254,33 @@ impl<T: TraitTest> Module<T>{
 		Ok(kitty_id)
 	}
 
+	fn create_new_kitty(sender:&T::AccountId, price:KittyAmount) -> sp_std::result::Result<T::KittyIndex,DispatchError>
+	{
+
+		// Self是指调用方这个对象，这里因为当前这个方法create所在的struct同时是next_kitty_id所在impl实现的结构体Module
+		let kitty_id = Self::next_kitty_id()?;
+
+		// 获取一个DNA数组
+		let dna = Self::random_value(&sender, kitty_id);
+
+		// 实例化结构体Kitty
+		let kitty = Kitty(dna);
+
+		Self::insert_kitty(&sender, kitty_id, kitty);
+		<PriceAmount::<T>>::insert(kitty_id, price);
+
+		Ok(kitty_id)
+		//Self::deposit_event(RawEvent::Created(sender,kitty_id));
+	}
+
 	//生成一个u8类型长度为16的数组，算是一个伪随机的数
-	fn random_value(sender:&T::AccountId) -> [u8;16]{
+	fn random_value(sender:&T::AccountId,kitty_id:T::KittyIndex) -> [u8;16]{
 
 		let paylaod = (
 			T::Randomness::random_seed(),
 			&sender,
 			<frame_system::Module<T>>::extrinsic_index(),
+			kitty_id,
 			);
 
 		paylaod.using_encoded(blake2_128)
@@ -267,7 +317,7 @@ impl<T: TraitTest> Module<T>{
 		let new_kitty_index = Self::next_kitty_id()?;
 		let father_dna = father_dna.0;
 		let mother_dna =  mother_dna.0;
-		let selector = Self::random_value(&sender);
+		let selector = Self::random_value(&sender, new_kitty_index);
 		let mut new_dna = [0u8;16];
 
 		for i in 0..father_dna.len(){
