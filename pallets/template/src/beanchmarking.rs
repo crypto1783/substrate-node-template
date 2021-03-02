@@ -13,10 +13,12 @@ benchmarks!{
 		let b in 1 .. 1000 => ();
 	}
 
+    //测试对象函数
 	do_something {
 		let b in ...;
 		let caller = account("caller", 0, 0);
-	}: _ (RawOrigin::Signed(caller), b.into())
+    }: _ (RawOrigin::Signed(caller), b.into())
+    //可选的校验方法
 	verify {
 		let value = Something::get();
 		assert_eq!(value, b.into());
