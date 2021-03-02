@@ -73,6 +73,7 @@ decl_module! {
 		/// - Base Weight: 33.54 µs
 		/// - DB Weight: 1 Write 1
 		/// # </weight>
+        //包含一次数据库写操作 基准测试结果是33.54微秒
 		#[weight = T::DbWeight::get().writes(1) + 33_540_000]
 		pub fn do_something(origin, something: u32) -> dispatch::DispatchResult {
 			// Check it was signed and get the signer. See also: ensure_root and ensure_none
